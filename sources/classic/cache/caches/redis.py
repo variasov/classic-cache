@@ -1,16 +1,13 @@
 from dataclasses import field
-from typing import Any, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Mapping, Sequence, Hashable
 
 import redis
 
 from classic.components import component
 
 from ..cache import Cache
-from ..key_generators import Blake2b
-from ..serializer import Serializer
-from ..serializers import PickleSerializer
-from ..typings import EncodedKeyType, EncodedValueType, KeyType, ValueType
 from ..value import CachedValue
+from ..key_generators import Blake2b
 
 
 @component
@@ -19,36 +16,14 @@ class RedisCache(Cache):
     Redis-реализация кэширования (TTL without history)
     """
     connection: redis.Redis
-    serializer: Optional[Serializer] = field(default_factory=PickleSerializer)
     key_function = field(default_factory=Blake2b)
-
-    def _serialize_pair(
-        self, key: KeyType, value: ValueType
-    ) -> Tuple[EncodedKeyType, EncodedValueType]:
-        return self._serialize_key(key), self.serializer.serialize(value)
-
-    def _create_cached_value(self, value: ValueType, ttl: Optional[int] = None):
-        return CachedValue(value, ttl)
-
-    # Обертки над операциями set/setex прямым соединением \ pipeline'ом
-    def _set(
-        self, connection: Union[redis.Redis, redis.client.Pipeline],
-        encoded_key: EncodedKeyType, encoded_value: EncodedValueType
-    ) -> None:
-        connection.set(encoded_key, encoded_value)
-
-    def _setex(
-        self, connection: Union[redis.Redis, redis.client.Pipeline],
-        encoded_key: EncodedKeyType, encoded_value: EncodedValueType, ttl: int
-    ) -> None:
-        connection.setex(encoded_key, ttl, encoded_value)
 
     def _save_value(
         self,
-        connection: Union[redis.Redis, redis.client.Pipeline],
-        key: KeyType,
-        value: ValueType,
-        ttl: Optional[int] = None
+        connection: redis.Redis | redis.client.Pipeline,
+        key: Hashable,
+        cached_value: Any,
+        ttl: int | None = None,
     ) -> None:
         """
         Сохранение элемента `value` в кэше с ассоциацией по ключу доступа `key`
@@ -58,31 +33,30 @@ class RedisCache(Cache):
         :param value: элемент для сохранения
         :param ttl: время "жизни" элемента
         """
-        cached_value = self._create_cached_value(value, ttl)
-        encoded_key, encoded_value = self._serialize_pair(key, cached_value)
+        encoded_key = self._serialize(key)
+        encoded_value = self._serialize(cached_value)
 
         if ttl:
             # set TTL operation (will be deleted after x seconds)
-            self._setex(connection, encoded_key, encoded_value, ttl)
+            connection.setex(encoded_key, ttl, encoded_value)
         else:
             # write as is without TTL
-            self._set(connection, encoded_key, encoded_value)
-
-    def _serialize_key(self, key: Any) -> EncodedKeyType:
-        return self.serializer.serialize(key)
+            connection.set(encoded_key, encoded_value)
 
     def set(
         self,
-        key: KeyType,
-        value: ValueType,
-        ttl: Optional[int] = None
+        key: Hashable,
+        value: Any,
+        type_,
+        ttl: int | None = None,
     ) -> None:
-        self._save_value(self.connection, key, value, ttl)
+        cached_value = type_(value, ttl=ttl)
+        self._save_value(self.connection, key, cached_value, ttl)
 
     def set_many(
         self,
-        elements: Mapping[KeyType, ValueType],
-        ttl: Optional[int] = None
+        elements: Mapping[Hashable, Any],
+        ttl: int | None = None,
     ) -> None:
         # Используем механизм pipeline для ускорения процесса записи
         # https://redis.io/docs/manual/pipelining/
@@ -94,17 +68,17 @@ class RedisCache(Cache):
 
         pipe.execute()
 
-    def get(self, key: KeyType) -> Optional[CachedValue]:
-        encoded_key = self._serialize_key(key)
+    def get(self, key: Hashable, type_) -> CachedValue | None:
+        encoded_key = self._serialize(key)
         _value = self.connection.get(encoded_key)
 
         if not _value:
             return None
         else:
-            return self.serializer.deserialize(_value)
+            return self._deserialize(_value, type_)
 
-    def get_many(self, keys: Sequence[KeyType]) -> Mapping[KeyType, ValueType]:
-        encoded_keys = [self._serialize_key(key) for key in keys]
+    def get_many(self, keys: Sequence[Hashable]) -> Mapping[Hashable, Any]:
+        encoded_keys = [self._serialize(key) for key in keys]
         decoded_values = self.connection.mget(encoded_keys)
 
         # Воспользуемся zip() для облегчения процесса итерации, т.к.
@@ -112,13 +86,13 @@ class RedisCache(Cache):
         # Дополнительно фильтруем ключ-значение, если оно исчезло
         # из Redis'а по какой-то причине
         return {
-            key: self.serializer.deserialize(decoded_value)
+            key: self._deserialize(decoded_value)
             for key, decoded_value in zip(keys, decoded_values)
             if decoded_value
         }
 
-    def invalidate(self, key: KeyType) -> None:
-        encoded_key = self._serialize_key(key)
+    def invalidate(self, key: Hashable) -> None:
+        encoded_key = self._serialize(key)
 
         # Можем вызывать as is, т.к. несуществующие ключи будут проигнорированы
         self.connection.delete(encoded_key)

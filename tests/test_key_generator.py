@@ -1,5 +1,3 @@
-from typing import Optional
-
 import pytest
 
 from classic.cache import key_generators
@@ -10,8 +8,8 @@ def empty_args_function():
 
 
 def optional_kwargs_function(
-    optional_arg: Optional[int] = None
-) -> Optional[int]:
+    optional_arg: int | None = None
+) -> int | None:
     return optional_arg
 
 
@@ -29,7 +27,7 @@ class A:
         return a + b
 
     @classmethod
-    def classmethod_function(cls, a: Optional[int] = None) -> Optional[int]:
+    def classmethod_function(cls, a: int | None = None) -> int | None:
         return a
 
 

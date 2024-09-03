@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Mapping, Optional, Sequence
+from typing import Mapping, Sequence, Any, Hashable
+
+import msgspec
 
 from .key_generator import FuncKeyCreator
-from .typings import KeyType, ValueType
 from .value import CachedValue
 
 
@@ -16,12 +17,19 @@ class Cache(ABC):
     Реализация хэширования функции и ее аргументов
     """
 
+    def _serialize(self, element: Any) -> bytes:
+        return msgspec.json.encode(element)
+
+    def _deserialize(self, element: bytes, type_) -> Any:
+        return msgspec.json.decode(element, type=type_)
+
     @abstractmethod
     def set(
         self,
-        key: KeyType,
-        value: ValueType,
-        ttl: Optional[int] = None
+        key: Hashable,
+        value: Any,
+        type_,
+        ttl: int | None = None
     ) -> None:
         """
         Сохранение элемента `element` в кэше
@@ -35,8 +43,8 @@ class Cache(ABC):
     @abstractmethod
     def set_many(
         self,
-        elements: Mapping[KeyType, ValueType],
-        ttl: Optional[int] = None
+        elements: Mapping[Hashable, Any],
+        ttl: int | None = None
     ) -> None:
         """
         Сохранение множества элементов `elements` в кэше
@@ -46,7 +54,7 @@ class Cache(ABC):
         """
 
     @abstractmethod
-    def get(self, key: KeyType) -> Optional[CachedValue]:
+    def get(self, key: Hashable, type_) -> CachedValue | None:
         """
         Получение сохраненного элемента из кэша
         :param key: ключ доступа к элементу
@@ -55,7 +63,7 @@ class Cache(ABC):
         ...
 
     @abstractmethod
-    def get_many(self, keys: Sequence[KeyType]) -> Mapping[KeyType, ValueType]:
+    def get_many(self, keys: Sequence[Hashable]) -> Mapping[Hashable, Any]:
         """
         Получение множества сохраненных элементов из кэша
         :param keys: ключи доступа к элементам
@@ -64,7 +72,7 @@ class Cache(ABC):
         """
 
     @abstractmethod
-    def invalidate(self, key: KeyType) -> None:
+    def invalidate(self, key: Hashable) -> None:
         """
         Удаление элемента из кэша
         :param key: ключ доступа к элементу

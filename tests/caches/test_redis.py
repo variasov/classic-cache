@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from datetime import datetime
+import time
 
 import pytest
+import msgspec
 from fakeredis import FakeRedis
 from freezegun import freeze_time
 
@@ -41,11 +43,10 @@ def next_year():
 
 
 @pytest.mark.parametrize('cache_instance', cache_instances, indirect=True)
-def test_get_set_without_ttl(cache_instance, cached_value):
+def test_get_set_without_ttl(cache_instance, cached_value, cached_value_type):
     key = 'test'
-
-    cache_instance.set(key, cached_value.value)
-    cache_result = cache_instance.get(key)
+    cache_instance.set(key, cached_value.value, cached_value_type)
+    cache_result = cache_instance.get(key, type_=cached_value_type)
 
     assert (
         cache_result and cache_result.value == cached_value.value
@@ -54,11 +55,11 @@ def test_get_set_without_ttl(cache_instance, cached_value):
 
 
 @pytest.mark.parametrize('cache_instance', cache_instances, indirect=True)
-def test_get_set_with_ttl(cache_instance, cached_value):
+def test_get_set_with_ttl(cache_instance, cached_value, cached_value_type):
     key = 'test'
 
-    cache_instance.set(key, cached_value.value, cached_value.ttl)
-    cache_result = cache_instance.get(key)
+    cache_instance.set(key, cached_value.value, cached_value_type, cached_value.ttl)
+    cache_result = cache_instance.get(key, cached_value_type)
 
     assert (
         cache_result and cache_result.value == cached_value.value
@@ -67,14 +68,14 @@ def test_get_set_with_ttl(cache_instance, cached_value):
 
 
 @pytest.mark.parametrize('cache_instance', cache_instances, indirect=True)
-def test_get_set_expired(cache_instance, cached_value, next_year):
+def test_get_set_expired(cache_instance, cached_value, next_year, cached_value_type):
     key = 'test'
 
-    cache_instance.set(key, cached_value.value, cached_value.ttl)
+    cache_instance.set(key, cached_value.value, cached_value_type, cached_value.ttl)
 
     # make sure that the cached value is expired by using 1 year gap
     with freeze_time(next_year):
-        assert cache_instance.get(key) is None
+        assert cache_instance.get(key, cached_value_type) is None
 
 
 @pytest.mark.parametrize('cache_instance', cache_instances, indirect=True)
@@ -152,13 +153,13 @@ def test_get_set_many_partial(cache_instance, cached_value, next_year):
 
 
 @pytest.mark.parametrize('cache_instance', cache_instances, indirect=True)
-def test_invalidate(cache_instance, cached_value):
+def test_invalidate(cache_instance, cached_value, cached_value_type):
     key = 'test'
 
-    cache_instance.set(key, cached_value.value)
+    cache_instance.set(key, cached_value.value, cached_value_type)
     cache_instance.invalidate(key)
 
-    assert cache_instance.get(key) is None
+    assert cache_instance.get(key, cached_value_type) is None
 
 
 @pytest.mark.parametrize('cache_instance', cache_instances, indirect=True)
@@ -178,10 +179,10 @@ def test_invalidate_all(cache_instance, cached_value):
         (FrozenDataclass(1, 2), bytes)
     ]
 )
-def test_serialize_key(request, key, expected):
+def test_serialize(request, key, expected):
     # пример с множественными параметрами теста
     for cache in cache_instances:
         instance = request.getfixturevalue(cache)
 
-        encoded_key = instance._serialize_key(key)
+        encoded_key = instance._serialize(key)
         assert isinstance(encoded_key, expected)
