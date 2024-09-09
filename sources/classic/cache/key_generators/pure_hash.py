@@ -1,4 +1,4 @@
-from typing import Hashable, Optional, Union
+from typing import Hashable
 
 from ..key_generator import FuncKeyCreator
 
@@ -11,20 +11,19 @@ class PureHash(FuncKeyCreator):
     **Обеспечивает персистентность только в рамках одного процесса!**
     """
 
-    def hash_arguments(self, *args,
-                       **kwargs) -> Union[Optional[int], Optional[str]]:
+    def hash_arguments(self, *args, **kwargs) -> int | str | None:
 
         # В боевых условиях надо вызывать с -OO для вырезания assert'ов
         assert all(isinstance(arg, Hashable) for arg in args)
         assert all(isinstance(value, Hashable) for value in kwargs.values())
 
-        kwargs = {key: kwargs[key] for key in sorted(kwargs.keys())}
+        kwargs = tuple(sorted(kwargs.items()))
 
         if args and kwargs:
-            tuple_creation = args + tuple(kwargs.items())
+            tuple_creation = args + kwargs
         elif args:
             tuple_creation = args
         else:
-            tuple_creation = tuple(kwargs.items())
+            tuple_creation = kwargs
 
         return hash(tuple_creation) if args or kwargs else None

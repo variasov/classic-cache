@@ -1,4 +1,4 @@
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable
 
 from orjson import dumps
 
@@ -12,8 +12,8 @@ class OrJson(FuncKeyCreator):
 
     def __init__(
         self,
-        options: Optional[int] = None,
-        default: Optional[Callable[[Any], Any]] = None
+        options: int | None = None,
+        default: Callable[[Any], Any] | None = None
     ):
         """
         Инициализация опций orjson (см. https://github.com/ijl/orjson)
@@ -23,8 +23,7 @@ class OrJson(FuncKeyCreator):
         self.options = options
         self.default = default
 
-    def hash_arguments(self, *args,
-                       **kwargs) -> Union[Optional[int], Optional[str]]:
+    def hash_arguments(self, *args, **kwargs) -> int | str | None:
         if not (args or kwargs):
             return None
 

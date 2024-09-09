@@ -5,7 +5,8 @@ from typing import Callable
 from classic.components import add_extra_annotation
 from classic.components.types import Decorator
 
-from .cache import Cache
+from .cache import Cache, CachedValue
+
 
 # @cache(ttl=timedelta(hours=1)) (пример использования)
 
@@ -30,13 +31,17 @@ def cache(ttl: int | timedelta | None = None) -> Decorator:
                 func, *args[1:], **kwargs
             )
 
-            cached_result = cache_instance.get(function_key)
+            cached_result = cache_instance.get(
+                function_key, CachedValue[func.__annotations__['return']]
+            )
 
             if cached_result:
                 return cached_result.value
             else:
                 result = func(*args, **kwargs)
-                cache_instance.set(function_key, result, ttl)
+                cache_instance.set(
+                    function_key, CachedValue(result, ttl=ttl), ttl
+                )
 
                 return result
 

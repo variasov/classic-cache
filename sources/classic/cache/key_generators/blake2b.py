@@ -1,6 +1,5 @@
 from hashlib import blake2b
 from pickle import dumps
-from typing import Optional, Union
 
 from ..key_generator import FuncKeyCreator
 
@@ -11,8 +10,7 @@ class Blake2b(FuncKeyCreator):
     (более медленная, чем `PureHash`, однако более устойчивая к коллизиям)
     """
 
-    def hash_arguments(self, *args,
-                       **kwargs) -> Union[Optional[int], Optional[str]]:
+    def hash_arguments(self, *args, **kwargs) -> int | str| None:
         if not (args or kwargs):
             return None
 
