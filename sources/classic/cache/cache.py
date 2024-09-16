@@ -1,26 +1,13 @@
-import time
 from abc import ABC, abstractmethod
-from typing import Mapping, Any, Hashable, TypeVar, Type, Generic
+from typing import Mapping, Any, Hashable, TypeVar, Type
 
 import msgspec
 
 from .key_generator import FuncKeyCreator
 
-CachedValueType = TypeVar('CachedValueType')
-
-
-class CachedValue(Generic[CachedValueType], msgspec.Struct):
-    """
-    Хранимое значение в кэше с дополнительной метаинформацией
-    """
-    value: CachedValueType
-    """Значение элемента из кэша"""
-
-    ttl: int | None = None
-    """Время "жизни" элемента в кэше (секунды), None - "живет" бесконечно"""
-
-    created: float = msgspec.field(default_factory=time.monotonic)
-    """Время создания элемента"""
+Key = TypeVar('Key', bound=Hashable)
+Value = TypeVar('Value', bound=object)
+Result = tuple[Value, bool]
 
 
 class Cache(ABC):
@@ -34,74 +21,96 @@ class Cache(ABC):
     """
 
     def _serialize(self, element: Any) -> bytes:
+        """
+        Сериализует элемент в байты для сохранения в кэше.
+        :param element: Элемент для сериализации.
+        :return: Сериализованный элемент в виде байтов.
+        """
         return msgspec.json.encode(element)
 
     def _deserialize(self, element: bytes | None, cast_to: Any) -> Any:
-        if element is None:
-            return None
+        """
+        Десериализует элемент из байтов.
+        :param element: Элемент для десериализации в виде байтов.
+        :param cast_to: Тип, к которому следует привести
+        десериализованный элемент.
+        :return: Десериализованный элемент.
+        """
         return msgspec.json.decode(element, type=cast_to)
 
     @abstractmethod
     def set(
         self,
-        key: Hashable,
-        cached_value: CachedValueType,
+        key: Key,
+        value: Value,
         ttl: int | None = None,
     ) -> None:
         """
-        Сохранение элемента `element` в кэше
-        :param key: ключ доступа к элементу
-        :param cached_value: значение элемента упакованное в структуру
-         `CachedValue`
-        :param ttl: время "жизни"
-            (как долго элемент может находиться в кэше)
+        Сохраняет элемент в кэше.
+        :param key: Ключ, по которому будет доступен элемент.
+        :param value: Значение элемента.
+        :param ttl: Время жизни элемента в кэше в секундах.
+         Если None, элемент будет храниться в кэше бессрочно.
         """
         ...
 
     @abstractmethod
     def set_many(
         self,
-        elements: Mapping[Hashable, CachedValueType],
+        elements: Mapping[Key, Value],
         ttl: int | None = None
     ) -> None:
         """
-        Сохранение множества элементов `elements` в кэше
-        :param elements: ключи доступа и значения элементов
-        упакованное в структуру `CachedValue`
-        :param ttl: время "жизни"
-            (как долго элемент может находиться в кэше)
+        Сохраняет несколько элементов в кэше.
+        :param elements: Словарь, где ключ - это ключ для доступа к элементу,
+         а значение - это сам элемент.
+        :param ttl: Время жизни элементов в кэше в секундах. Если None,
+         элементы будут храниться в кэше бессрочно.
         """
 
     @abstractmethod
-    def get(self, key: Hashable, cast_to: Type) -> CachedValueType | None:
+    def exists(self, key: Key) -> bool:
         """
-        Получение сохраненного элемента из кэша
-        :param key: ключ доступа к элементу
-        :param cast_to: тип элемента
-        :return: Элемент, если он существует и не просрочен, иначе `None`
+        Проверяет, существует ли элемент в кэше.
+        :param key: Ключ, по которому осуществляется доступ к элементу.
+        :return: True, если элемент существует и его время жизни не истекло,
+         иначе False.
         """
         ...
 
     @abstractmethod
-    def get_many(self, keys: dict[Hashable, Type]) -> Mapping[Hashable, Any]:
+    def get(self, key: Key, cast_to: Type[Value]) -> Result:
         """
-        Получение множества сохраненных элементов из кэша
-        :param keys: маппинг ключ доступа к элементу на тип элемента
-        :return: Словарь ключей и элементов,
-            которые существуют в кэше и не являются просроченными
+        Получает элемент из кэша.
+        :param key: Ключ, по которому осуществляется доступ к элементу.
+        :param cast_to: Тип, к которому следует привести полученный элемент.
+        :return: Значение элемента и флаг, указывающий, был ли элемент найден в
+         кэше.
+        """
+        ...
+
+    @abstractmethod
+    def get_many(self, keys: dict[Key, Type[Value]]) -> Mapping[Key, Result]:
+        """
+        Получает несколько элементов из кэша.
+        :param keys: Словарь, где ключ - это ключ для доступа к элементу,
+         а значение - это тип, к которому следует привести полученный элемент.
+        :return: Словарь, где ключ - это ключ для доступа к элементу,
+         а значение - это кортеж, состоящий из значения элемента и флага,
+         указывающего, был ли элемент найден в кэше.
         """
 
     @abstractmethod
-    def invalidate(self, key: Hashable) -> None:
+    def invalidate(self, key: Key) -> None:
         """
-        Удаление элемента из кэша
-        :param key: ключ доступа к элементу
+        Удаляет элемент из кэша.
+        :param key: Ключ, по которому осуществляется доступ к элементу.
         """
         ...
 
     @abstractmethod
     def invalidate_all(self) -> None:
         """
-        Удаление всех элементов из кэша
+        Удаляет все элементы из кэша.
         """
         ...

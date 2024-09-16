@@ -1,61 +1,60 @@
 import time
-from typing import Any, Mapping, Hashable, Type
+from dataclasses import field
+
+from typing import Mapping, Type
 
 from classic.components import component
 
-from ..cache import Cache, CachedValueType
+from ..cache import Cache, Key, Value, Result
 from ..key_generators import PureHash
 
 
 @component
 class InMemoryCache(Cache):
-    """
-    In-memory реализация кэширования
-    """
-    key_function = PureHash()
-
-    def __init__(self):
-        self.cache = {}
-
-    def _save_value(
-        self,
-        key: Hashable,
-        cached_value: CachedValueType,
-        ttl: int | None = None,
-    ) -> None:
-        self.cache[key] = (
-            time.monotonic() + ttl if ttl else None, cached_value
-        )
+    key_function = field(default_factory=PureHash)
+    cache: dict[Key, tuple[int | None, bytes]] = field(default_factory=dict)
 
     def set(
         self,
-        key: Hashable,
-        cached_value: CachedValueType,
+        key: Key,
+        value: Value,
         ttl: int | None = None,
     ) -> None:
-        self._save_value(key, cached_value, ttl)
+        self.cache[key] =(
+            time.monotonic() + ttl if ttl else None, self._serialize(value)
+        )
 
     def set_many(
         self,
-        elements: Mapping[Hashable, CachedValueType],
-        ttl: int | None = None,
+        elements: Mapping[Key, Value],
+        ttl: int | None = None
     ) -> None:
         for key, value in elements.items():
-            self._save_value(key, value, ttl)
+            self.set(key, value, ttl=ttl)
 
-    def get(self, key: Hashable, cast_to: Type) -> CachedValueType | None:
-        if key in self.cache:
-            expiry, value = self.cache[key]
-            if expiry is None or time.monotonic() < expiry:
-                return value
-            else:
-                del self.cache[key]
-        return None
+    def exists(self, key: Key) -> bool:
+        try:
+            expiry, _ = self.cache[key]
+        except KeyError:
+            return False
 
-    def get_many(self, keys: dict[Hashable, Type]) -> Mapping[Hashable, Any]:
+        return expiry is None or time.monotonic() < expiry
+
+    def get(self, key: Key, cast_to: Type[Value]) -> Result:
+        try:
+            expiry, cached_value = self.cache[key]
+        except KeyError:
+            return None, False
+
+        if expiry is not None and time.monotonic() >= expiry:
+            return None, False
+
+        return self._deserialize(cached_value, cast_to), True
+
+    def get_many(self, keys: dict[Key, Type[Value]]) -> Mapping[Key, Result]:
         return {key: self.get(key, cast_to) for key, cast_to in keys.items()}
 
-    def invalidate(self, key: Hashable) -> None:
+    def invalidate(self, key: Key) -> None:
         self.cache.pop(key, None)
 
     def invalidate_all(self) -> None:

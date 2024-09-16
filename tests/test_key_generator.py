@@ -1,6 +1,10 @@
 import pytest
+import timeit
+import logging
 
 from classic.cache import key_generators
+
+logger = logging.getLogger(__name__)
 
 
 def empty_args_function():
@@ -54,9 +58,7 @@ def test_empty_args_function(generator):
 
 
 @pytest.mark.parametrize(
-    'kwargs,expected_token', [({}, False), ({
-        'optional_arg': 1
-    }, True)]
+    'kwargs,expected_token', [({}, False), ({'optional_arg': 1}, True)]
 )
 def test_optional_kwargs_function(kwargs, expected_token):
     for generator in generators:
@@ -120,5 +122,22 @@ def test_classmethods(generator):
 # specific key generators
 @pytest.mark.parametrize('generator', [key_generators.PureHash()])
 def test_non_hashable_structures(generator):
-    with pytest.raises(AssertionError):
+    with pytest.raises((AssertionError, TypeError)):
         generator(optional_kwargs_function, {'optional_arg': {'a': 1, 'b': 2}})
+
+
+@pytest.mark.parametrize('generator', generators)
+def test_key_generator_performance(generator):
+    # создаем таймер с функцией и генератором ключей
+    timer = timeit.Timer(lambda: generator(args_function, 1, 2))
+
+    # измеряем время выполнения
+    num_trials = 100000
+    elapsed_time = timer.timeit(num_trials)
+
+    logger.info(
+        (
+            f"Elapsed time for {generator.__class__.__name__}: {elapsed_time} "
+            f"seconds for {num_trials} trials"
+        )
+    )

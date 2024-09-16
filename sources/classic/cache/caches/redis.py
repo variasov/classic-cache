@@ -1,9 +1,10 @@
 from dataclasses import field
-from typing import Any, Mapping, Hashable, Type
+from typing import Mapping, Type
 
 try:
     from redis import Redis
     from redis.client import Pipeline as RedisPipeline
+
     redis_installed = True
 except ImportError:
     Redis = RedisPipeline = Type
@@ -11,8 +12,10 @@ except ImportError:
 
 from classic.components import component
 
-from ..cache import Cache, CachedValueType
-from ..key_generators import Blake2b
+from ..cache import Cache, Value, Key, Result
+from ..key_generators import MsgSpec
+
+CachedValue = tuple[Value, int | None]
 
 
 @component
@@ -21,7 +24,8 @@ class RedisCache(Cache):
     Redis-реализация кэширования (TTL without history)
     """
     connection: Redis
-    key_function = field(default_factory=Blake2b)
+    key_function = field(default_factory=MsgSpec)
+    version: int | None = None
 
     def __post_init__(self):
         if not redis_installed:
@@ -32,8 +36,8 @@ class RedisCache(Cache):
     def _save_value(
         self,
         connection: Redis | RedisPipeline,
-        key: Hashable,
-        value: CachedValueType,
+        key: Key,
+        value: Value,
         ttl: int | None = None,
     ) -> None:
         """
@@ -44,8 +48,9 @@ class RedisCache(Cache):
         :param value: элемент для сохранения
         :param ttl: время "жизни" элемента
         """
+        cached_value = (value, self.version)
         encoded_key = self._serialize(key)
-        encoded_value = self._serialize(value)
+        encoded_value = self._serialize(cached_value)
 
         if ttl:
             # set TTL operation (will be deleted after x seconds)
@@ -56,20 +61,19 @@ class RedisCache(Cache):
 
     def set(
         self,
-        key: Hashable,
-        cached_value: CachedValueType,
+        key: Key,
+        value: Value,
         ttl: int | None = None,
     ) -> None:
-        self._save_value(self.connection, key, cached_value, ttl)
+        self._save_value(self.connection, key, value, ttl)
 
     def set_many(
         self,
-        elements: Mapping[Hashable, CachedValueType],
-        ttl: int | None = None,
+        elements: Mapping[Key, Value],
+        ttl: int | None = None
     ) -> None:
         # Используем механизм pipeline для ускорения процесса записи
         # https://redis.io/docs/manual/pipelining/
-
         pipe = self.connection.pipeline()
 
         for key, value in elements.items():
@@ -77,16 +81,23 @@ class RedisCache(Cache):
 
         pipe.execute()
 
-    def get(self, key: Hashable, cast_to: Type) -> CachedValueType | None:
+    def exists(self, key: Key) -> bool:
+        return self.connection.exists(self._serialize(key))
+
+    def get(self, key: Key, cast_to: Type[Value]) -> Result:
         encoded_key = self._serialize(key)
-        _value = self.connection.get(encoded_key)
+        value = self.connection.get(encoded_key)
+        if value is None:
+            return None, False
 
-        if not _value:
-            return None
-        else:
-            return self._deserialize(_value, cast_to)
+        value, version = self._deserialize(value, CachedValue[cast_to])
+        if self.version and version < self.version:
+            self.invalidate(key)
+            return None, False
 
-    def get_many(self, keys: dict[Hashable, Type]) -> Mapping[Hashable, Any]:
+        return value, True
+
+    def get_many(self, keys: dict[Key, Type[Value]]) -> Mapping[Key, Result]:
         encoded_keys = [self._serialize(key) for key in keys]
         decoded_values = self.connection.mget(encoded_keys)
 
@@ -94,16 +105,21 @@ class RedisCache(Cache):
         # значения возвращаются в том же порядке, как были поданы ключи.
         # Дополнительно фильтруем ключ-значение, если оно исчезло
         # из Redis'а по какой-то причине
-        return {
-            key: self._deserialize(decoded_value, cast_to)
-            for (key, cast_to), decoded_value in zip(
-                keys.items(), decoded_values
-            )
-        }
+        result = {}
+        for (key, cast_to), value in zip(keys.items(), decoded_values):
+            if value is None:
+                result[key] = None, False
+            else:
+                value, version = self._deserialize(value, CachedValue[cast_to])
+                if not self.version or version >= self.version:
+                    result[key] = value, True
+                else:
+                    result[key] = None, False
+                    self.invalidate(key)
+        return result
 
-    def invalidate(self, key: Hashable) -> None:
+    def invalidate(self, key: Key) -> None:
         encoded_key = self._serialize(key)
-
         # Можем вызывать as is, т.к. несуществующие ключи будут проигнорированы
         self.connection.delete(encoded_key)
 
