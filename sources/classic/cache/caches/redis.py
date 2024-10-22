@@ -1,5 +1,5 @@
 from dataclasses import field
-from typing import Mapping, Type
+from typing import Mapping, Type, Callable, Hashable
 
 try:
     from redis import Redis
@@ -24,7 +24,7 @@ class RedisCache(Cache):
     Redis-реализация кэширования (TTL without history)
     """
     connection: Redis
-    key_function = field(default_factory=MsgSpec)
+    key_function: Callable[[...], Hashable] = field(default_factory=MsgSpec)
     version: int | None = None
 
     def __post_init__(self):
