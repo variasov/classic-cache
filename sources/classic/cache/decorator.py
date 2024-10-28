@@ -69,6 +69,10 @@ class BoundedWrapper:
             result = self.func(*args, **kwargs)
             self.cache.set(fn_key, result, self.ttl)
 
+    def if_cached(self, *args, **kwargs):
+        fn_key = self.cache.key_function(self.func, *args, **kwargs)
+        return self.cache.get(fn_key, self.return_type)
+
 
 @dataclass
 class Wrapper:

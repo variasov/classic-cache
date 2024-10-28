@@ -69,3 +69,15 @@ def test_refresh(cache_instance):
     fn_key = cache_instance.key_function(SomeClass.some_method, 1, 2)
     __, found = cache_instance.get(fn_key, int)
     assert found
+
+
+@pytest.mark.parametrize('cache_instance', cache_instances, indirect=True)
+def test_if_cached(cache_instance):
+    some_instance = SomeClass(cache=cache_instance)
+    result = some_instance.some_method(1, 2)
+
+    value, found = some_instance.some_method.if_cached(1, 2)
+    assert result == value
+    assert found is True
+    value, found = some_instance.some_method.if_cached(1, 3)
+    assert found is False
