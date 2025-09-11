@@ -1,6 +1,5 @@
 import time
 from dataclasses import field
-
 from typing import Mapping, Type, Callable, Hashable
 
 from classic.components import component

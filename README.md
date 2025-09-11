@@ -1,8 +1,8 @@
 # Classic Cache
 
-Classic Cache - предоставляет функциональность кеширования. Она поддерживает 
-кэширование как в памяти, так и на  основе Redis, и позволяет легко 
-переключаться между ними. Является частью проекта "Classic".
+Classic Cache - предоставляет функциональность кеширования.
+Предоставляет утилиты для пометки кеша, бекенд для кеширования в RAM
+и бекенд для кешироавния в Redis.
 
 ## Установка
 
@@ -20,8 +20,6 @@ pip install classic-cache[redis]
 
 ## Использование
 
-Вот несколько примеров использования Classic-Cache.
-
 ```python
 from classic.cache import cached, InMemoryCache, RedisCache
 from classic.components import component
@@ -36,6 +34,7 @@ class SomeClass:
 
 # кеширование в памяти
 cache = InMemoryCache()
+# ИЛИ
 # кеширование в Redis
 cache = RedisCache(connection=Redis())
 
